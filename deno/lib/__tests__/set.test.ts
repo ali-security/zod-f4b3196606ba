@@ -103,6 +103,38 @@ test("failing when set is bigger than max() ", () => {
     expect(result.error.issues.length).toEqual(1);
     expect(result.error.issues[0].code).toEqual(ZodIssueCode.too_big);
   }
+  const capped = z.set(z.string()).max(1).safeParse(new Set([1, 2]));
+  expect(capped.error!.issues.length).toEqual(1);
+  expect(capped.error!.issues[0].code).toEqual(ZodIssueCode.too_big);
+});
+
+test("an upper size bound fails before any element is parsed", async () => {
+  let parsed = 0;
+  const el = z.string().refine(() => ++parsed);
+  const values: string[] = [];
+  for (let i = 0; i < 10000; i++) {
+    values.push(String(i));
+  }
+  const input = new Set(values);
+
+  for (const schema of [z.set(el).max(100), z.set(el).size(100)]) {
+    const syncIssues = schema.safeParse(input).error!.issues;
+    const asyncIssues = (await schema.safeParseAsync(input)).error!.issues;
+    for (const issues of [syncIssues, asyncIssues]) {
+      expect(issues.length).toEqual(1);
+      expect(issues[0].code).toEqual(ZodIssueCode.too_big);
+      expect(issues[0].path).toEqual([]);
+    }
+  }
+  expect(parsed).toEqual(0);
+
+  // a lower size bound still lets the elements be parsed
+  const short = z.set(el).min(3).safeParse(new Set(["a", 1]));
+  expect(short.error!.issues.map((i) => i.code)).toEqual([
+    ZodIssueCode.too_small,
+    ZodIssueCode.invalid_type,
+  ]);
+  expect(parsed).toEqual(1);
 });
 
 test("doesn’t throw when an empty set is given", () => {

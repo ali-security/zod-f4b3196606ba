@@ -64,6 +64,70 @@ test("continue parsing despite array size error", () => {
   }
 });
 
+test("an upper size bound fails before any element is parsed", () => {
+  let parsed = 0;
+  const el = z.string().refine(() => ++parsed);
+  let refined = 0;
+  const schema = z
+    .array(el)
+    .max(2, "too many")
+    .refine(() => ++refined);
+
+  const tooMany = schema.safeParse([1, 2, 3]).error!.issues;
+  expect(tooMany.length).toEqual(1);
+  expect(tooMany[0].code).toEqual(z.ZodIssueCode.too_big);
+  expect(tooMany[0].path).toEqual([]);
+  expect(tooMany[0].message).toEqual("too many");
+
+  const notExact = z.array(el).length(2).safeParse(["a", "b", "c"]).error!;
+  expect(notExact.issues.length).toEqual(1);
+  expect(notExact.issues[0].code).toEqual(z.ZodIssueCode.too_big);
+  expect((notExact.issues[0] as z.ZodTooBigIssue).exact).toEqual(true);
+
+  const nested = z.object({ a: z.array(el).max(1) });
+  const nestedIssues = nested.safeParse({ a: [1, 2] }).error!.issues;
+  expect(nestedIssues.length).toEqual(1);
+  expect(nestedIssues[0].code).toEqual(z.ZodIssueCode.too_big);
+  expect(nestedIssues[0].path).toEqual(["a"]);
+
+  expect(z.array(el).max(2).safeParse(["a", "b", "c"]).success).toEqual(false);
+  expect([parsed, refined]).toEqual([0, 0]);
+
+  // a lower size bound still lets the elements be parsed
+  const short = z.array(el).min(3).safeParse(["a", 1]).error!.issues;
+  expect(short.map((i) => i.code)).toEqual(["too_small", "invalid_type"]);
+  expect(short[1].path).toEqual([1]);
+  expect(parsed).toEqual(1);
+});
+
+test("an oversized array is rejected with a single issue", async () => {
+  let parsed = 0;
+  const el = z.string().refine(() => ++parsed);
+  const numbers: number[] = [];
+  for (let i = 0; i < 10000; i++) {
+    numbers.push(i);
+  }
+  const strings = numbers.map(String);
+  const schemas: z.ZodTypeAny[] = [
+    z.array(el).max(100),
+    z.array(el).length(100),
+    z.array(el).nonempty().max(100),
+  ];
+
+  for (const schema of schemas) {
+    for (const input of [numbers, strings]) {
+      const syncIssues = schema.safeParse(input).error!.issues;
+      const asyncIssues = (await schema.safeParseAsync(input)).error!.issues;
+      for (const issues of [syncIssues, asyncIssues]) {
+        expect(issues.length).toEqual(1);
+        expect(issues[0].code).toEqual(z.ZodIssueCode.too_big);
+        expect(issues[0].path).toEqual([]);
+      }
+    }
+  }
+  expect(parsed).toEqual(0);
+});
+
 test("parse should fail given sparse array", () => {
   const schema = z.array(z.string()).nonempty().min(1).max(3);
 

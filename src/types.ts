@@ -2391,6 +2391,14 @@ export class ZodArray<
       }
     }
 
+    // an oversized array fails its upper size bound before any element is parsed
+    if (
+      (def.exactLength !== null && ctx.data.length > def.exactLength.value) ||
+      (def.maxLength !== null && ctx.data.length > def.maxLength.value)
+    ) {
+      return INVALID;
+    }
+
     if (ctx.common.async) {
       return Promise.all(
         ([...ctx.data] as any[]).map((item, i) => {
@@ -3943,7 +3951,8 @@ export class ZodSet<Value extends ZodTypeAny = ZodTypeAny> extends ZodType<
           exact: false,
           message: def.maxSize.message,
         });
-        status.dirty();
+        // an oversized set fails its upper size bound before any element is parsed
+        return INVALID;
       }
     }
 
